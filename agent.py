@@ -12,11 +12,15 @@ class Agent:
         self.unaccessible = ['*', '-', 'T', '~']
         self.unaccessible_solution = {'*': 'D', '-': 'K', 'T': 'A', '~': 'T'}
         self.target_pos = {'$': None}
+        self.items = []
         self.mission_stack = ['$']
         self.direction = 0
         self.x = 5
         self.y = 5
-        self.known_world = [['?' for _ in range(11)] for _ in range(11)]
+        self.visited_places = [(self.x, self.y)]
+        self.x_size = 11
+        self.y_size = 11
+        self.known_world = [['?' for _ in range(self.x_size)] for _ in range(self.y_size)]
         data = self.recv_from_server()
         self.axe = False
         self.key = False
@@ -45,10 +49,13 @@ class Agent:
                 if next_block in [' ', 'A', 'K', 'D', '$']:
                     if next_block == 'A':
                         self.axe = True
+                        self.items.append('A')
                     elif next_block == 'K':
                         self.key = True
+                        self.items.append('K')
                     elif next_block == 'D':
                         self.dynamite = True
+                        self.items.append('D')
                     if self.direction % 2 == 0:
                         self.y += self.direction - 1
                     elif self.direction %2 != 0:
@@ -118,15 +125,15 @@ class Agent:
         return next_block 
 
     def _world_we_already_know(self):
-        y_size = len(self.known_world)
-        x_size = len(self.known_world[0])
-        print('+', '-'*x_size, '+', sep='')
-        for i in range(y_size):
+        self.y_size = len(self.known_world)
+        self.x_size = len(self.known_world[0])
+        print('+', '-'*self.x_size, '+', sep='')
+        for i in range(self.y_size):
             print('|', end='')
-            for j in range(x_size):
+            for j in range(self.x_size):
                 print(self.known_world[i][j], end='')
             print('|')
-        print('+', '-'*x_size, '+', sep='')
+        print('+', '-'*self.x_size, '+', sep='')
 
     def _display(self, data):
         assert(data)
@@ -148,7 +155,7 @@ class Agent:
         des = None
         for y in range(len(self.known_world)):
             for x in range(len(self.known_world[0])):
-                if self.known_world[y][x].upper() == stuff:
+                if self.known_world[y][x].upper() == stuff.upper():
                     this_dis = x0 + y0 - x - y
                     if dis is None or this_dis < dis:
                         dis = this_dis
@@ -157,16 +164,68 @@ class Agent:
             return des
         return None
 
-    def _heuristic(self, start, des):
-        pass
+    def _heuristic(self, point, des):
+        return abs(des[0] - point[0]) + abs(des[1] - point[1])
 
-    def a_star(self, start, des):
-        from queue import PriorityQueue as p_queue
+    def _astar(self, start, des):
+        from queue import PriorityQueue
+        def _get_around(point):
+            x, y = point
+            around = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+            around_points = []
+            for a in around:
+                p = (x+a[0], y+a[1])
+                if self.known_world[p[1]][p[0]] in self.unaccessible + ['?']:
+                    continue
+                around_points.append(p)
+            return around_points
+        frontier = PriorityQueue()
+        frontier.put((0, start))
 
-    def go_to_point(self, point, path):
-        pass
+        cost_so_far = {start:0}
+        came_from = {start:None}
+        while not frontier.empty():
+            current = frontier.get()
+            current = current[1]
+            if current == des:
+                break
+            for p in _get_around(current):
+                new_cost = cost_so_far[current] + 1
+                if p not in cost_so_far or new_cost < cost_so_far[p]:
+                    cost_so_far[p] = new_cost
+                    priority = new_cost + self._heuristic(p, des)
+                    frontier.put((priority, p))
+                    came_from[p] = current
+        if des in came_from:
+            path = [des]
+            f = came_from[des]
+            while start != f:
+                path.append(f)
+                f = came_from[f]
+            return path[::-1]
+
+        else:
+            return None
+        return came_from, cost_so_far
+
+
+    def _go_follow_path(self, path, point=None):
+        if point is None:
+            point = ((self.x, self.y))
+        for p in path:
+            block = self._find_next_block()
+            if self._find_next_block() in self.unaccessible:
+                if block == 'T':
+                    self.act('C')
+                elif block == 'W':
+                    self.act('B')
+                elif block == '-':
+                    self.act('U')
+            self._go_to_neightbour_point(p)
+        return
 
     def _go_to_neightbour_point(self, point):
+        print(self.x, self.y, point)
         x, y = point
         d_x = x - self.x
         d_y = y - self.y
@@ -176,7 +235,6 @@ class Agent:
             des_direction = d_y + 1
         left_turns = abs(self.direction - des_direction)
         right_turns = (4 - des_direction + self.direction) % 4
-        print(des_direction, self.direction, left_turns, right_turns)
         if left_turns <= right_turns:
             for _ in range(left_turns):
                 self.act('L')
@@ -186,6 +244,12 @@ class Agent:
         self.act('F')
         return
 
+    def _find_meaning_of_life(self):
+        pass
+
+    def _find_stack(self):
+        pass
+
 
 parser = ArgumentParser()
 parser.add_argument('--port', dest='port')
@@ -193,8 +257,16 @@ args = parser.parse_args()
 port = args.port
 
 agent = Agent()
+k_pos = agent._find_nearest_stuff('k')
+print(k_pos)
+path = agent._astar((5,5), (0,0))
+print(path)
+#agent._go_follow_path(path)
+
 while True:
     action = input("Enter Action(s): ")
+    import time
+    #time.sleep(1)
     # try:
     #     agent.act(action)
     # except:
