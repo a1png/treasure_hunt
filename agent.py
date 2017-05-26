@@ -175,7 +175,9 @@ class Agent:
             around_points = []
             for a in around:
                 p = (x+a[0], y+a[1])
-                if self.known_world[p[1]][p[0]] in self.unaccessible + ['?']:
+                if self.known_world[p[1]][p[0]] in \
+                    [b for b in self.unaccessible + ['?']\
+                         if self.unaccessible_solution.get(b) not in self.items]:
                     continue
                 around_points.append(p)
             return around_points
@@ -189,7 +191,8 @@ class Agent:
             current = current[1]
             if current == des:
                 break
-            for p in _get_around(current):
+            around = _get_around(current)
+            for p in around:
                 new_cost = cost_so_far[current] + 1
                 if p not in cost_so_far or new_cost < cost_so_far[p]:
                     cost_so_far[p] = new_cost
@@ -213,19 +216,22 @@ class Agent:
         if point is None:
             point = ((self.x, self.y))
         for p in path:
-            block = self._find_next_block()
-            if self._find_next_block() in self.unaccessible:
-                if block == 'T':
-                    self.act('C')
-                elif block == 'W':
-                    self.act('B')
-                elif block == '-':
-                    self.act('U')
             self._go_to_neightbour_point(p)
         return
 
+    def _turn_to_direction(self, des_direction):
+        left_turns =  (4 + des_direction - self.direction) % 4
+        right_turns = (8 - des_direction + self.direction) % 4
+        if left_turns <= right_turns:
+            for _ in range(left_turns):
+                self.act('L')
+        elif left_turns > right_turns:
+            for _ in range(right_turns):
+                self.act('R')
+        return
+
+
     def _go_to_neightbour_point(self, point):
-        print(self.x, self.y, point)
         x, y = point
         d_x = x - self.x
         d_y = y - self.y
@@ -233,22 +239,54 @@ class Agent:
             des_direction = d_x + 2
         if d_y != 0:
             des_direction = d_y + 1
-        left_turns = abs(self.direction - des_direction)
-        right_turns = (4 - des_direction + self.direction) % 4
-        if left_turns <= right_turns:
-            for _ in range(left_turns):
-                self.act('L')
-        elif left_turns > right_turns:
-            for _ in range(right_turns):
-                self.act('R')
+        self._turn_to_direction(des_direction)
+        next_block = self._find_next_block()
+        if next_block in self.unaccessible:
+            if next_block == '-':
+                self.act('u')
+            elif next_block == 'T':
+                self.act('c')
+            elif next_block == 'W':
+                self.act('b')
         self.act('F')
         return
 
-    def _find_meaning_of_life(self):
-        pass
+    def find_meaning_of_life(self):
+        for y in range(len(self.known_world)):
+            for x in range(len(self.known_world[y])):
+                if self.known_world[y][x].upper() in self.desired:
+                    path = self._astar((self.x, self.y), (x,y))
+                    if path is not None:
+                        return path
+                    else:
+                        continue
+        return None
 
-    def _find_stack(self):
-        pass
+    def walk_around(self, sight=5):
+        max_mark = 0
+        d=None
+        for i in range(4):
+            x, y = self.x, self.y
+            if i % 2 == 0:
+                if self.known_world[y+i-1][x] in self.unaccessible:
+                    continue
+                y1 = y + 3 * (i-1)
+                see = self.known_world[y1][x-sight//2: x+sight//2+1]
+            elif i % 2 == 1:
+                if self.known_world[y][x+i-2] in self.unaccessible:
+                    continue
+                x1 = x + 3 * (i-2)
+                see = [self.known_world[_][x1] for _ in range(y-sight//2, y+sight//2+1)]
+            mark = see.count('?')
+            if mark > max_mark:
+                d = i
+                max_mark = max(mark, max_mark)
+        if d is not None:
+            self._turn_to_direction(d)
+        else:
+            while self._find_next_block() in self.unaccessible:
+                self._turn_to_direction((self.direction + 1) % 4)
+        self.act('f')
 
 
 parser = ArgumentParser()
@@ -257,10 +295,6 @@ args = parser.parse_args()
 port = args.port
 
 agent = Agent()
-k_pos = agent._find_nearest_stuff('k')
-print(k_pos)
-path = agent._astar((5,5), (0,0))
-print(path)
 #agent._go_follow_path(path)
 
 while True:
@@ -272,7 +306,13 @@ while True:
     # except:
     #     print('Game over')
     #     sys.exit()
-    agent.act(action)
+    path = agent.find_meaning_of_life()
+    print('!!!!', path)
+    if path:
+        agent._go_follow_path(path)
+    else:
+        agent.walk_around()
+    #agent.act(action)
 agent.act(action)
 
 
